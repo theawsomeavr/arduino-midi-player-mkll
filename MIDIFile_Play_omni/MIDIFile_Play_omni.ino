@@ -6,6 +6,7 @@
 //  SD card interface - change SD_SELECT for SPI comms
 //  3 LEDs (optional) - to display current status and beat. 
 //            Change pin definitions for specific hardware setup - defined below.
+//you must have the sd fat library
 uint16_t count1;
 int dd;
 //int simple_midi=0;
