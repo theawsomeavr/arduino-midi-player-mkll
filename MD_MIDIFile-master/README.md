@@ -1,3 +1,4 @@
+you must use this modified version of this library to get the code to work fine!!!!!!!!!
 This library allows Standard MIDI Files (SMF) to be read from an SD card and played through a MIDI interface. SMF can be opened and processed, with MIDI and SYSEX events passed to the calling program through callback functions. This allows the calling application to manage sending to a MIDI synthesizer through serial interface or other output device, such as a MIDI shield. 
 * SMF playing may be controlled through the library using methods to start, pause and restart playback. 
 * SMF may be automatically looped to play continuously. 
