@@ -1,61 +1,24 @@
-// Test playing a succession of MIDI files from the SD card.
-// Example program to demonstrate the use of the MIDFile library
-// Just for fun light up a LED in time to the music.
-//
-// Hardware required:
-//  SD card interface - change SD_SELECT for SPI comms
-//  3 LEDs (optional) - to display current status and beat. 
-//            Change pin definitions for specific hardware setup - defined below.
-//you must have the sd fat library
-uint16_t count1;
-int dd;
-//int simple_midi=0;
 #include <LiquidCrystal.h>
 LiquidCrystal lcd(7, 6, 5, 4, 3, 2);
-//LiquidCrystal lcd(0x3F,16,2);
-enum lcd_state  { LSBegin, LSSelect, LSShowFile, LSGotFile };
-enum midi_state { MSBegin, MSLoad, MSOpen, MSProcess, MSClose };
-enum seq_state  { LCDSeq, MIDISeq };
 #include <SdFat.h>
-#define comuputa 1
 #include <MD_MIDIFile.h>
-#define  FNAME_SIZE    30        // 8.3 + '\0' character file names
-#define PLAYLIST_FILE "PLAYLIST.TXT"  // file of file names
+#define  FNAME_SIZE    40         // 8.3 + '\0' character file names
 #define MIDI_EXT    ".mid"
 #define USE_MIDI  1
-uint16_t  plCount = 0;
-void timeron(){
-   TCCR1A =0;
-  TCCR1B=0;
-  TCCR1B|=(1<<CS12);
-  
-  TIMSK1|=(1<<TOIE1); 
+void timeron() {
+  TCCR1A = 0;
+  TCCR1B = 0;
+  TCCR1B |= (1 << CS12);
+  TIMSK1 |= (1 << TOIE1);
 }
-void timeroff(){
+void timeroff() {
   lcd.noAutoscroll();
-  TCCR1A =0;
-  TCCR1B=0;
+  TCCR1A = 0;
+  TCCR1B = 0;
 }
-#if USE_MIDI // set up for direct MIDI serial output
-
-#define DEBUG(x)
-#define DEBUGX(x)
-#define SERIAL_RATE 57600
-
-#else // don't use MIDI to allow printing debug statements
-
-#define DEBUG(x)  Serial.print(x)
-#define DEBUGX(x) Serial.print(x, HEX)
-#define SERIAL_RATE 57600
-int a;
-#endif // USE_MIDI
-  uint16_t  count = 0;// count of files
-  char      fname[FNAME_SIZE];
-char nombre[FNAME_SIZE];
-// SD chip select pin for SPI comms.
-// Arduino Ethernet shield, pin 4.
-// Default SD chip select is the SPI SS pin (10).
-// Other hardware will be different as documented for that hardware.
+#define baudrate 31250
+char fname[FNAME_SIZE];
+bool dd, chan;
 #define  SD_SELECT  10
 SdFat SD;
 // LED definitions for user indicators
@@ -63,153 +26,79 @@ SdFat SD;
 #define SMF_ERROR_LED A2 // SMF error
 #define SD_ERROR_LED  A4 // SD error
 #define BEAT_LED      A2 // toggles to the 'beat'
-int button[3]={A5,A3,A1};
-#define WAIT_DELAY  2000  // ms
+int button[3] = {A5, A3, A1};
+SdFile file;
+SdFile dirFile;
 
-#define ARRAY_SIZE(a) (sizeof(a)/sizeof(a[0]))
-
-
-
-// The files in the tune list should be located on the SD card 
-// or an error will occur opening the file and the next in the 
-// list will be opened (skips errors).
-  static lcd_state s = LSBegin;
-  static uint8_t  plIndex = 0;
-//  static char fname[FNAME_SIZE];
-  static SdFile plFile;
-
-void check(void)
-// create a play list file on the SD card with the names of the files.
-// This will then be used in the menu.
-{
-   //if(count!=4){
-   // play list file
-  SdFile    mFile;    // MIDI file
-
-
-  // open/create the play list file
- 
-//    LCDErrMessage("PL create fail", true);
-
-  SD.vwd()->rewind();
-  while (mFile.openNext(SD.vwd(), O_READ))
-  {
-    mFile.getName(fname, FNAME_SIZE);
-
-
-    if (mFile.isFile())
-    {
-      if (strcmp(MIDI_EXT, &fname[strlen(fname)-strlen(MIDI_EXT)]) == 0)
-      // only include files with MIDI extension
-      {
-        //plFile.write(fname,FNAME_SIZE);
-     /*   DEBUG("\nFile ");
-    DEBUG();
-    DEBUG(" ");*/
-    
-     mFile.getName(nombre, FNAME_SIZE);
-//tuneList[count]={nombre};
-   // DEBUG(tuneList[8]);
-   if(count1==0){
-    lcd.clear();
-     lcd.setCursor(0,1);
-    // lcd.autoscroll();
-    lcd.print(nombre);
-   // lcd.noAutoscroll();
-      lcd.setCursor(0,0);  // use the next file name and play it
-    lcd.print("File: ");
-    lcd.setCursor(10,0);
-    lcd.print(count);
-      lcd.setCursor(11,0);
-    lcd.print("/");
-     
-    
-   }
-        count1++;
-        //delay(500);
-      }
-       lcd.setCursor(13,0);
-      lcd.print(count1-1);
-     // xx++;
+// Number of files found.
+uint16_t n = 0;
+const uint8_t nMax = 120;
+int8_t num;
+uint16_t dirIndex[nMax];
+//------------------------------------------------------------------------------
+//mFile.getName(fname, FNAME_SIZE);
+void init_files() {
+  dirFile.open("/", O_READ);
+  while (n < nMax && file.openNext(&dirFile, O_READ)) {
+    file.getName(fname, FNAME_SIZE);
+    if (!file.isSubDir() && !file.isHidden() && (strcmp(MIDI_EXT, &fname[strlen(fname) - strlen(MIDI_EXT)]) == 0)) {
+      dirIndex[n] = file.dirIndex();
+      n++;
     }
-    mFile.close();
+    file.close();
   }
-  //DEBUG("\nList completed");
-
-  // close the play list file
- 
-  //timeron();
-delay(500);
+  n--;
 }
-  
-
-
-//SdFat SD;
 MD_MIDIFile SMF;
-//int d;
-//int f;
-
 void midiCallback(midi_event *pev)
-// Called by the MIDIFile library when a file event needs to be processed
-// thru the midi communications interface.
-// This callback is set up in the setup() function.
 {
 
-  for (uint8_t i=0; i<pev->size; i++)
+  for (uint8_t i = 0; i < pev->size; i++)
   {
-    if(dd==1){
-      lcd.noAutoscroll();
-    lcd.clear();
-    lcd.print(pev->data[0]| pev->channel);
-    lcd.setCursor(4,0); 
-    lcd.print(pev->data[1]);
-       lcd.setCursor(8,0); 
-    lcd.print(pev->data[2]);
+    if (dd == 1) {
+      if (pev->data[0] <= 0x9f && pev->data[0] >= 0x90) {
+        if (pev->data[2] >= 1) {
+          lcd.setCursor(pev->channel, 1);
+          lcd.print("1");
+        }
+        else {
+          lcd.setCursor(pev->channel, 1);
+          lcd.print(" ");
+        }
+
+      }
+      if (pev->data[0] <= 0x8f && pev->data[0] >= 0x80) {
+        lcd.setCursor(pev->channel, 1);
+        lcd.clear();
+      }
     }
-   if(pev->data[0] >= 0xA0){
-Serial.write(pev->data[0] | pev->channel);
-    Serial.write(&pev->data[1], pev->size-1);
-  }
- if(pev->data[0] <= 0x9f&&pev->data[0] >= 0x90){
-  if(pev->data[2]>=1){
-  Serial.write(0x90 | pev->channel);
-    Serial.write(pev->data[1]);
-      Serial.write(127);
-  }
-  
-  else{
-     Serial.write(0x80 | pev->channel);
-    Serial.write(pev->data[1]);
-      Serial.write(0); 
-  }
-  }
-  if(pev->data[0] <= 0x8f&&pev->data[0] >= 0x80){
+    if (pev->data[0] >= 0xA0) {
+      Serial.write(pev->data[0] | pev->channel);
+      Serial.write(&pev->data[1], pev->size - 1);
+    }
+    if (pev->data[0] <= 0x9f && pev->data[0] >= 0x90) {
+      if (pev->data[2] >= 1) {
+        Serial.write(0x90 | pev->channel);
+        Serial.write(pev->data[1]);
+        Serial.write(127);
+      }
 
-  Serial.write(0x80 | pev->channel);
-    Serial.write(pev->data[1]);
+      else {
+        Serial.write(0x80 | pev->channel);
+        Serial.write(pev->data[1]);
+        Serial.write(0);
+      }
+    }
+    if (pev->data[0] <= 0x8f && pev->data[0] >= 0x80) {
+      Serial.write(0x80 | pev->channel);
+      Serial.write(pev->data[1]);
       Serial.write(0);
-
-  
-    
-  }
-}}
-
-
-void sysexCallback(sysex_event *pev)
-// Called by the MIDIFile library when a system Exclusive (sysex) file event needs 
-// to be processed through the midi communications interface. Most sysex events cannot 
-// really be processed, so we just ignore it here.
-// This callback is set up in the setup() function.
-{
-  DEBUG("\nS T");
-  DEBUG(pev->track);
-  DEBUG(": Data ");
-  for (uint8_t i=0; i<pev->size; i++)
-  {
-    DEBUGX(pev->data[i]);
-  DEBUG(' ');
+    }
   }
 }
+
+
+void sysexCallback(sysex_event *pev) {}
 
 void midiSilence(void)
 // Turn everything off on every channel.
@@ -232,61 +121,47 @@ void midiSilence(void)
 
 void setup(void)
 {
-  
-pinMode(9,INPUT_PULLUP);
-if(digitalRead(9)==0){
-  dd=1;
-}
-//  #ifdef computa
-  
-    Serial.begin(31250);
-lcd.begin(16,2);
-
-  
-    if (!SD.begin(SD_SELECT, SPI_FULL_SPEED))
-  {
-   lcd.print("SD init fail!");
-   // digitalWrite(SD_ERROR_LED, HIGH);
-    while (true) ;
+  pinMode(9, INPUT_PULLUP);
+  if (digitalRead(9) == 0) {
+    dd = 1;
   }
-//  plCount = createPlaylistFile();
- /// DEBUG(plCount);
-  // Initialize MIDIFile
+  Serial.begin(baudrate);
+  lcd.begin(16, 2);
+  while (!SD.begin(SD_SELECT, SPI_FULL_SPEED))
+  {
+    lcd.print("SD init fail!");
+    delay(500);
+    lcd.clear();
+  }
   SMF.begin(&SD);
   SMF.setMidiHandler(midiCallback);
   SMF.setSysexHandler(sysexCallback);
-// Serial.begin(SERIAL_RATE);
-
- 
-//Serial.print(mFile.read());
-  //return(count);
-
-
-  // Print a message to the LCD.
-  //lcd.backlight();
-  // Set up LED 
-  pinMode(button[0],INPUT_PULLUP);
-  pinMode(button[1],INPUT_PULLUP);
-  pinMode(button[2],INPUT_PULLUP);
-  pinMode(8,INPUT_PULLUP);
-  pinMode(READY_LED, OUTPUT);
-  pinMode(SD_ERROR_LED, OUTPUT);
-  pinMode(SMF_ERROR_LED, OUTPUT);
-check();
-  
-count1--;
-  DEBUG("\n[MidiFile Play List]");
-
-  // Initialize SD
-
-
- // digitalWrite(READY_LED, HIGH);
+  pinMode(button[0], INPUT_PULLUP);
+  pinMode(button[1], INPUT_PULLUP);
+  pinMode(button[2], INPUT_PULLUP);
+  pinMode(8, INPUT_PULLUP);
+  pinMode(BEAT_LED, 1);
+  init_files();
+  file.open(&dirFile, dirIndex[num], O_READ);
+  file.getName(fname, FNAME_SIZE);
+  lcd.clear();
+  lcd.setCursor(0, 1);
+  lcd.print(fname);
+  lcd.setCursor(0, 0); // use the next file name and play it
+  lcd.print("File: ");
+  lcd.setCursor(10, 0);
+  lcd.print(num + 1);
+  lcd.setCursor(12, 0);
+  lcd.print("/");
+  lcd.setCursor(13, 0);
+  lcd.print(n+1);
+  file.close();
 }
-ISR(TIMER1_OVF_vect){
-     lcd.setCursor(16,0); // setea el cursor fuera del conteo del display
+ISR(TIMER1_OVF_vect) {
+  lcd.setCursor(16, 0); // setea el cursor fuera del conteo del display
   lcd.autoscroll();    // Setea el display para scroll automatico
-  lcd.print(" "); 
-  TCNT1=44702;
+  lcd.print(" ");
+  TCNT1 = 44702;
 }
 void tickMetronome(void)
 // flash a LED to the beat
@@ -295,7 +170,7 @@ void tickMetronome(void)
   static boolean  inBeat = false;
   uint16_t  beatTime;
 
-  beatTime = 60000/SMF.getTempo();    // msec/beat = ((60sec/min)*(1000 ms/sec))/(beats/min)
+  beatTime = 60000 / SMF.getTempo();  // msec/beat = ((60sec/min)*(1000 ms/sec))/(beats/min)
   if (!inBeat)
   {
     if ((millis() - lastBeatTime) >= beatTime)
@@ -315,234 +190,106 @@ void tickMetronome(void)
   }
 
 }
-int i;
-int v;
-int chan;
 void loop(void)
-{  
-      
-           // imprime un character en blanco
-
-      
-      count=0;
-  //char *tuneList[count1];
- // delay(500);
-  if(digitalRead(8)==0){
-   chan=1-chan;
-   delay(200);
+{
+  if (digitalRead(8) == 0) {
+    chan = !chan;
+    delay(200);
   }
-  if(chan==1){
+  if (chan) {
     timeron();
   }
-  else{
-    timeroff(); 
+  else {
+    timeroff();
   }
-  if(digitalRead(button[0])==0&&i<count1){
-  
-  }
-  //if(v==0){
-    // create a play list file on the SD card with the names of the files.
-// This will then be used in the menu.
-if(digitalRead(button[0])==0){
- 
- i++;
- if(i>count1){
- i=0; 
- }
-  //if(count!=4){
-   // play list file
-  SdFile    mFile;    // MIDI file
-
-
-  // open/create the play list file
- 
-//    LCDErrMessage("PL create fail", true);
-
-  SD.vwd()->rewind();
-  while (mFile.openNext(SD.vwd(), O_READ))
-  {
-    mFile.getName(fname, FNAME_SIZE);
-
-
-    if (mFile.isFile())
-    {
-      if (strcmp(MIDI_EXT, &fname[strlen(fname)-strlen(MIDI_EXT)]) == 0&&count<i+1)
-      // only include files with MIDI extension
-      {
-        //plFile.write(fname,FNAME_SIZE);
-     /*   DEBUG("\nFile ");
-    DEBUG();
-    DEBUG(" ");*/
-    
-     mFile.getName(nombre, FNAME_SIZE);
-//tuneList[count]={nombre};
-   // DEBUG(tuneList[8]);
-   if(count==i){
-    lcd.clear();
-     lcd.setCursor(0,1);
-    lcd.print(nombre);
-      lcd.setCursor(0,0);  // use the next file name and play it
-    lcd.print("File: ");
-    lcd.setCursor(10,0);
-    lcd.print(count);
-      lcd.setCursor(12,0);
-    lcd.print("/");
-          lcd.setCursor(13,0);
-    lcd.print(count1);
-        
-        }
-        count++;
-        //delay(500);
-      }
-     // xx++;
+  if (digitalRead(button[0]) == 0) {
+    num++;
+    if (num > n) {
+      num = 0;
     }
-    mFile.close();
-  }
-  //DEBUG("\nList completed");
-
-  // close the play list file
-
-  
-delay(250);
-}
-  // /* DEBUG("\nFile: ");
-    //DEBUG(nombre);
-    int  err;
-	
-
-	  // reset LEDs
-	  digitalWrite(READY_LED, LOW);
-	  digitalWrite(SD_ERROR_LED, LOW);
-
-if(digitalRead(button[2])==0/*&&i>0*/){
- 
- i--;
-  if(i<0){
- i=count1; 
- }
-  //if(count!=4){
-    // play list file
-  SdFile    mFile;    // MIDI file
-
-
-  // open/create the play list file
- 
-//    LCDErrMessage("PL create fail", true);
-
-  SD.vwd()->rewind();
-  while (mFile.openNext(SD.vwd(), O_READ))
-  {
-    mFile.getName(fname, FNAME_SIZE);
-
-
-    if (mFile.isFile())
-    {
-      if (strcmp(MIDI_EXT, &fname[strlen(fname)-strlen(MIDI_EXT)]) == 0&&count<i+1)
-      // only include files with MIDI extension
-      {
-        //plFile.write(fname,FNAME_SIZE);
-     /*   DEBUG("\nFile ");
-    DEBUG();
-    DEBUG(" ");*/
-    
-     mFile.getName(nombre, FNAME_SIZE);
-//tuneList[count]={nombre};
-   // DEBUG(tuneList[8]);
-   
-   if(count==i){
+    file.open(&dirFile, dirIndex[num], O_READ);
+    file.getName(fname, FNAME_SIZE);
     lcd.clear();
-     lcd.setCursor(0,1);
-    lcd.print(nombre);
-      lcd.setCursor(0,0);  // use the next file name and play it
+    lcd.setCursor(0, 1);
+    lcd.print(fname);
+    lcd.setCursor(0, 0); // use the next file name and play it
     lcd.print("File: ");
-    lcd.setCursor(10,0);
-    lcd.print(count);
-      lcd.setCursor(12,0);
+    lcd.setCursor(10, 0);
+    lcd.print(num + 1);
+    lcd.setCursor(12, 0);
     lcd.print("/");
-          lcd.setCursor(13,0);
-    lcd.print(count1);
-  
-   }
-        count++;
-        
-        //delay(500);
-      }
-
-      
-     // xx++;
-    }
-    mFile.close();
+    lcd.setCursor(13, 0);
+    lcd.print(n + 1);
+    file.close();
+    delay(250);
   }
-  //DEBUG("\nList completed");
-
-  // close the play list file
-  //plFile.close();
-  
-delay(250);
-}
- //Serial.print(tuneList[i]);
-
-    if(digitalRead(button[1])==0){
-
-        lcd.setCursor(15,0);
+  int  err;
+  if (digitalRead(button[2]) == 0) {
+    num--;
+    if (num < 0) {
+      num = n;
+    }
+    file.open(&dirFile, dirIndex[num], O_READ);
+    file.getName(fname, FNAME_SIZE);
+    lcd.clear();
+    lcd.setCursor(0, 1);
+    lcd.print(fname);
+    lcd.setCursor(0, 0); // use the next file name and play it
+    lcd.print("File: ");
+    lcd.setCursor(10, 0);
+    lcd.print(num + 1);
+    lcd.setCursor(12, 0);
+    lcd.print("/");
+    lcd.setCursor(13, 0);
+    lcd.print(n + 1);
+    file.close();
+    delay(250);
+  }
+  if (digitalRead(button[1]) == 0) {
+    lcd.setCursor(15, 0);
     lcd.print("p");
-	  SMF.setFilename(nombre);
- if(dd==0){
-  
- 
-   timeron();
- }
-	  err = SMF.load();
-	  if (err != -1)
-	  {
-    lcd.clear();
-		lcd.print("SMF load Error ");
-lcd.setCursor(0,1);   
-		lcd.print(err);
-		
-	//	delay(WAIT_DELAY);
-	  }
-	  else
-	  {
-    delay(500);
-		// play the file
-		while (!SMF.isEOF())
-		{
-    tickMetronome();
-			if (SMF.getNextEvent())
-     if(digitalRead(button[1])==0){
-     //digitalWrite(A3,0);
-   timeroff();
-      SMF.close();
-    midiSilence();
-     }
-      if(digitalRead(button[0])==0&&digitalRead(button[2])==1){
-     //digitalWrite(A3,0);
-     SMF.setTempoAdjust(SMF.getTempoAdjust()+10);
-      delay(500);
-     }
-       if(digitalRead(button[2])==0&&digitalRead(button[0])==1){
-     //digitalWrite(A3,0);
-     SMF.setTempoAdjust(SMF.getTempoAdjust()-10);
-      delay(500);
-     }
-       if(digitalRead(button[2])==0&&digitalRead(button[0])==0){
-     //digitalWrite(A3,0);
-     SMF.setTempoAdjust(0);
-      delay(500);
-     }
-			
-		}
-
-		// done with this one
-   timeroff();
-		SMF.close();
-		midiSilence();
-
-		// signal finish LED with a dignified pause
-		digitalWrite(READY_LED, HIGH);
-		delay(WAIT_DELAY);
-	  
-	}
+    if (dd == 1) {
+      lcd.clear();
     }
+    if (dd == 0) {
+      timeron();
+    }
+    err = SMF.load_FileNum(dirIndex[num]);
+    if (err != -1)
+    {
+      lcd.clear();
+      lcd.print("SMF load Error ");
+      lcd.setCursor(0, 1);
+      lcd.print(err);
+    }
+    else
+    {
+      delay(500);
+      while (!SMF.isEOF())
+      {
+        tickMetronome();
+        if (SMF.getNextEvent())
+          if (digitalRead(button[1]) == 0) {
+            timeroff();
+            SMF.close();
+            midiSilence();
+          }
+        if (digitalRead(button[0]) == 0 && digitalRead(button[2]) == 1) {
+          SMF.setTempoAdjust(SMF.getTempoAdjust() + 10);
+          delay(500);
+        }
+        if (digitalRead(button[2]) == 0 && digitalRead(button[0]) == 1) {
+          SMF.setTempoAdjust(SMF.getTempoAdjust() - 10);
+          delay(500);
+        }
+        if (digitalRead(button[2]) == 0 && digitalRead(button[0]) == 0) {
+          SMF.setTempoAdjust(0);
+          delay(500);
+        }
+      }
+      timeroff();
+      SMF.close();
+      midiSilence();
+    }
+  }
 }
