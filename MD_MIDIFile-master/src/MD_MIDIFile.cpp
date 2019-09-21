@@ -345,7 +345,97 @@ void MD_MIDIFile::processEvents(uint16_t ticks)
 	} 
 #endif // EVENT/TRACK_PRIORITY
 }
+int MD_MIDIFile::load_FileNum(uint16_t fnum) 
+// Load the MIDI file into memory ready for processing
+{
+  SdFile dirFile2;
+  uint32_t  dat32;
+  uint16_t  dat16;
+  dirFile2.open("/", O_READ);
 
+  // open the file for reading:
+  if (!_fd.open(&dirFile2, fnum, O_READ)) 
+    return(2);
+
+  // Read the MIDI header
+  // header chunk = "MThd" + <header_length:4> + <format:2> + <num_tracks:2> + <time_division:2>
+  {
+    char    h[MTHD_HDR_SIZE+1]; // Header characters + nul
+  
+    _fd.fgets(h, MTHD_HDR_SIZE+1);
+    h[MTHD_HDR_SIZE] = '\0';
+    
+    if (strcmp(h, MTHD_HDR) != 0)
+	  {
+	    _fd.close();
+      return(3);
+	  }
+  }
+  
+  // read header size
+  dat32 = readMultiByte(&_fd, MB_LONG);
+  if (dat32 != 6)   // must be 6 for this header
+  {
+	  _fd.close();
+    return(4);
+  }
+  
+  // read file type
+  dat16 = readMultiByte(&_fd, MB_WORD);
+  if ((dat16 != 0) && (dat16 != 1))
+  {
+	  _fd.close();
+    return(5);
+  }
+  _format = dat16;
+ 
+   // read number of tracks
+  dat16 = readMultiByte(&_fd, MB_WORD);
+  if ((_format == 0) && (dat16 != 1)) 
+  {
+	_fd.close();
+    return(6);
+  }
+  if (dat16 > MIDI_MAX_TRACKS)
+  {
+	_fd.close();
+	return(7);
+  }
+  _trackCount = dat16;
+
+   // read ticks per quarter note
+  dat16 = readMultiByte(&_fd, MB_WORD);
+  if (dat16 & 0x8000) // top bit set is SMTE format
+  {
+      int framespersecond = (dat16 >> 8) & 0x00ff;
+      int resolution      = dat16 & 0x00ff;
+
+      switch (framespersecond) {
+        case 232:  framespersecond = 24; break;
+        case 231:  framespersecond = 25; break;
+        case 227:  framespersecond = 29; break;
+        case 226:  framespersecond = 30; break;
+        default:   _fd.close();	return(7);
+      }
+      dat16 = framespersecond * resolution;
+   } 
+   _ticksPerQuarterNote = dat16;
+   calcTickTime();	// we may have changed from default, so recalculate
+
+   // load all tracks
+   for (uint8_t i = 0; i<_trackCount; i++)
+   {
+	   int err;
+	   
+	   if ((err = _track[i].load(i, this)) != -1)
+	   {
+		   _fd.close();
+		   return((10*(i+1))+err);
+	   }
+   }
+
+  return(-1);
+}
 int MD_MIDIFile::load() 
 // Load the MIDI file into memory ready for processing
 {

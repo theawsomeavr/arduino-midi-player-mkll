@@ -790,6 +790,7 @@ public:
    * - n1 = Track n chunk size past end of file
    */
   int load(void);
+  int load_FileNum(uint16_t fnum); 
   /** @} */
 
   //--------------------------------------------------------------
