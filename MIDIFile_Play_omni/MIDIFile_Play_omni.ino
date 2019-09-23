@@ -52,49 +52,8 @@ void init_files() {
 MD_MIDIFile SMF;
 void midiCallback(midi_event *pev)
 {
-
-  for (uint8_t i = 0; i < pev->size; i++)
-  {
-    if (dd == 1) {
-      if (pev->data[0] <= 0x9f && pev->data[0] >= 0x90) {
-        if (pev->data[2] >= 1) {
-          lcd.setCursor(pev->channel, 1);
-          lcd.print("1");
-        }
-        else {
-          lcd.setCursor(pev->channel, 1);
-          lcd.print(" ");
-        }
-
-      }
-      if (pev->data[0] <= 0x8f && pev->data[0] >= 0x80) {
-        lcd.setCursor(pev->channel, 1);
-        lcd.clear();
-      }
-    }
-    if (pev->data[0] >= 0xA0) {
-      Serial.write(pev->data[0] | pev->channel);
-      Serial.write(&pev->data[1], pev->size - 1);
-    }
-    if (pev->data[0] <= 0x9f && pev->data[0] >= 0x90) {
-      if (pev->data[2] >= 1) {
-        Serial.write(0x90 | pev->channel);
-        Serial.write(pev->data[1]);
-        Serial.write(127);
-      }
-
-      else {
-        Serial.write(0x80 | pev->channel);
-        Serial.write(pev->data[1]);
-        Serial.write(0);
-      }
-    }
-    if (pev->data[0] <= 0x8f && pev->data[0] >= 0x80) {
-      Serial.write(0x80 | pev->channel);
-      Serial.write(pev->data[1]);
-      Serial.write(0);
-    }
-  }
+  Serial.write(pev->data[0] | pev->channel);
+  for (uint8_t i = 1; i < pev->size; i++)Serial.write(pev->data[i]);
 }
 
 
@@ -122,6 +81,7 @@ void midiSilence(void)
 void setup(void)
 {
   pinMode(9, INPUT_PULLUP);
+  pinMode(BEAT_LED, 1);
   if (digitalRead(9) == 0) {
     dd = 1;
   }
@@ -130,8 +90,10 @@ void setup(void)
   while (!SD.begin(SD_SELECT, SPI_FULL_SPEED))
   {
     lcd.print("SD init fail!");
+    PORTC ^= _BV(PC2);
     delay(500);
     lcd.clear();
+    PORTC ^= _BV(PC2);
   }
   SMF.begin(&SD);
   SMF.setMidiHandler(midiCallback);
@@ -140,7 +102,6 @@ void setup(void)
   pinMode(button[1], INPUT_PULLUP);
   pinMode(button[2], INPUT_PULLUP);
   pinMode(8, INPUT_PULLUP);
-  pinMode(BEAT_LED, 1);
   init_files();
   file.open(&dirFile, dirIndex[num], O_READ);
   file.getName(fname, FNAME_SIZE);
@@ -154,7 +115,7 @@ void setup(void)
   lcd.setCursor(12, 0);
   lcd.print("/");
   lcd.setCursor(13, 0);
-  lcd.print(n+1);
+  lcd.print(n + 1);
   file.close();
 }
 ISR(TIMER1_OVF_vect) {
@@ -273,6 +234,7 @@ void loop(void)
             timeroff();
             SMF.close();
             midiSilence();
+            delay(500);
           }
         if (digitalRead(button[0]) == 0 && digitalRead(button[2]) == 1) {
           SMF.setTempoAdjust(SMF.getTempoAdjust() + 10);
